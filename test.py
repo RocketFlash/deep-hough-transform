@@ -1,7 +1,7 @@
 import argparse 
 import numpy as np
 import os
-from utils import caculate_precision, caculate_recall
+from src.utils import caculate_precision, caculate_recall
 
 parser = argparse.ArgumentParser(description='PyTorch Semantic-Line Training')
 parser.add_argument('--pred', type=str, required=True)

@@ -14,17 +14,20 @@ import torch.optim
 import tqdm
 import yaml
 from torch.optim import lr_scheduler
-from logger import Logger
 
-from dataloader import get_loader
-from model.network import Net
+
+from src.dataloader import get_loader
+from src.model.network import Net
+from src.logger import Logger
+from src.utils import reverse_mapping, caculate_precision, caculate_recall
+
 from skimage.measure import label, regionprops
 from tensorboardX import SummaryWriter
-from utils import reverse_mapping, caculate_precision, caculate_recall
+
 
 parser = argparse.ArgumentParser(description='PyTorch Semantic-Line Training')
 # arguments from command line
-parser.add_argument('--config', default="./config.yml", help="path to config file")
+parser.add_argument('--config', default="./configs/default_config.yml", help="path to config file")
 parser.add_argument('--resume', default="", help='path to config file')
 parser.add_argument('--tmp', default="", help='tmp')
 args = parser.parse_args()

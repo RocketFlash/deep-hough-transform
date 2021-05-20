@@ -9,17 +9,17 @@ import numpy as np
 import tqdm
 import yaml
 import cv2
-
-from logger import Logger
-
-from dataloader import get_loader
-from model.network import Net
 from skimage.measure import label, regionprops
-from utils import reverse_mapping, visulize_mapping
+
+from src.logger import Logger
+from src.dataloader import get_loader
+from src.model.network import Net
+from src.utils import reverse_mapping, visulize_mapping
+from src.basic_ops import *
 
 parser = argparse.ArgumentParser(description='PyTorch Semantic-Line Training')
 # arguments from command line
-parser.add_argument('--config', default="./config.yml", help="path to config file")
+parser.add_argument('--config', default="./configs/default_config.yml", help="path to config file")
 parser.add_argument('--model', required=True, help='path to the pretrained model')
 parser.add_argument('--tmp', default="", help='tmp')
 args = parser.parse_args()
@@ -74,10 +74,12 @@ def test(test_loader, model, args):
         ntime = 0
         for i, data in enumerate(bar):
             t = time.time()
-            images, names, img_size = data
-
+            
+            images, names = data
+            
+            img_size = images.shape[2:]
             images = images.cuda(device=CONFIGS["TRAIN"]["GPU_ID"])
-            size = (img_size[0].item(), img_size[1].item())        
+            size = (img_size[0], img_size[1])        
             key_points = model(images)
             key_points = torch.sigmoid(key_points)
             ftime += (time.time() - t)
