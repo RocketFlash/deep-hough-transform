@@ -142,9 +142,11 @@ def prepare_data(args, labels_files, save_dir='./'):
 
             np.save(save_name, data)
             cv2.imwrite(str(save_name) + '.jpg', im)
-            cv2.imwrite(str(save_name) + '_p_label.jpg', hough_space_label*255)
-            cv2.imwrite(str(save_name) + '_vis.jpg', vis)
-            cv2.imwrite(str(save_name) + '_mask.jpg', mask*255)
+
+            if args.save_vis:
+                cv2.imwrite(str(save_name) + '_p_label.jpg', hough_space_label*255)
+                cv2.imwrite(str(save_name) + '_vis.jpg', vis)
+                cv2.imwrite(str(save_name) + '_mask.jpg', mask*255)
 
 
 def make_k_fold_split(labels_files, k=5, save_dir='./'):
@@ -171,7 +173,7 @@ if __name__ == '__main__':
     parser.add_argument('--fixsize', type=int, default=None, help='fix resize of images and annotations')
     parser.add_argument('--numangle', type=int, default=80, required=True)
     parser.add_argument('--numrho', type=int, default=80, required=True)
-    parser.add_argument('--is_notebook', default=False, action='store_true')
+    parser.add_argument('--save_vis', default=False, action='store_true')
     parser.add_argument('--k', type=int, default=5)
     args = parser.parse_args()
 
