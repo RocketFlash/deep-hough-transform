@@ -5,3 +5,5 @@ opencv-python
 scikit-image
 tqdm
 pyyaml
+wandb
+albumentations

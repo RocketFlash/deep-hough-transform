@@ -7,9 +7,11 @@ from os.path import isfile, join, split
 
 import torch
 import torchvision
+from torchvision import transforms
 import torch.nn as nn
 import torch.backends.cudnn as cudnn
 import numpy as np
+import pandas as pd
 import torch.optim
 import tqdm
 import yaml
@@ -23,6 +25,13 @@ from src.utils import reverse_mapping, caculate_precision, caculate_recall
 
 from skimage.measure import label, regionprops
 from tensorboardX import SummaryWriter
+
+WANDB_AVAILABLE = False
+try:
+    import wandb
+    WANDB_AVAILABLE = True
+except ModuleNotFoundError:
+    print('wandb is not installed')
 
 
 parser = argparse.ArgumentParser(description='PyTorch Semantic-Line Training')
@@ -49,119 +58,28 @@ logger = Logger(os.path.join(CONFIGS["MISC"]["TMP"], "log.txt"))
 
 logger.info(CONFIGS)
 
-def main():
 
-    logger.info(args)
-    assert os.path.isdir(CONFIGS["DATA"]["DIR"])
-
-    if CONFIGS['TRAIN']['SEED'] is not None:
-        random.seed(CONFIGS['TRAIN']['SEED'])
-        torch.manual_seed(CONFIGS['TRAIN']['SEED'])
-        cudnn.deterministic = True
-
-    model = Net(numAngle=CONFIGS["MODEL"]["NUMANGLE"], numRho=CONFIGS["MODEL"]["NUMRHO"], backbone=CONFIGS["MODEL"]["BACKBONE"])
-    
-    if CONFIGS["TRAIN"]["DATA_PARALLEL"]:
-        logger.info("Model Data Parallel")
-        model = nn.DataParallel(model).cuda()
-    else:
-        model = model.cuda(device=CONFIGS["TRAIN"]["GPU_ID"])
-
-    # optimizer
-    optimizer = torch.optim.Adam(
-        model.parameters(),
-        lr=CONFIGS["OPTIMIZER"]["LR"],
-        weight_decay=CONFIGS["OPTIMIZER"]["WEIGHT_DECAY"]
-    )
-
-    # learning rate scheduler
-    scheduler = lr_scheduler.MultiStepLR(optimizer,
-                            milestones=CONFIGS["OPTIMIZER"]["STEPS"],
-                            gamma=CONFIGS["OPTIMIZER"]["GAMMA"])
-    best_acc1 = 0
-    if args.resume:
-        if isfile(args.resume):
-            logger.info("=> loading checkpoint '{}'".format(args.resume))
-            checkpoint = torch.load(args.resume)
-            args.start_epoch = checkpoint['epoch']
-            best_acc1 = checkpoint['best_acc1']
-            model.load_state_dict(checkpoint['state_dict'])
-            # optimizer.load_state_dict(checkpoint['optimizer'])
-            logger.info("=> loaded checkpoint '{}' (epoch {})"
-                  .format(args.resume, checkpoint['epoch']))
-        else:
-            logger.info("=> no checkpoint found at '{}'".format(args.resume))
-
-    # dataloader
-    train_loader = get_loader(CONFIGS["DATA"]["DIR"], CONFIGS["DATA"]["LABEL_FILE"], 
-                                batch_size=CONFIGS["DATA"]["BATCH_SIZE"], num_thread=CONFIGS["DATA"]["WORKERS"], split='train')
-    val_loader = get_loader(CONFIGS["DATA"]["VAL_DIR"], CONFIGS["DATA"]["VAL_LABEL_FILE"], 
-                                batch_size=1, num_thread=CONFIGS["DATA"]["WORKERS"], split='val')
-
-    logger.info("Data loading done.")
-
-    # Tensorboard summary
-
-    writer = SummaryWriter(log_dir=os.path.join(CONFIGS["MISC"]["TMP"]))
-
-    start_epoch = 0
-    best_acc = best_acc1
-    is_best = False
-    start_time = time.time()
-
-    if CONFIGS["TRAIN"]["RESUME"] is not None:
-        raise(NotImplementedError)
-    
-    if CONFIGS["TRAIN"]["TEST"]:
-        validate(val_loader, model, 0, writer, args)
-        return
-
-    logger.info("Start training.")
-
-    for epoch in range(start_epoch, CONFIGS["TRAIN"]["EPOCHS"]):
-        
-        train(train_loader, model, optimizer, epoch, writer, args)
-        acc = validate(val_loader, model, epoch, writer, args)
-        #return
-        scheduler.step()
-
-        if best_acc < acc:
-            is_best = True
-            best_acc = acc
-        else:
-            is_best = False
-
-        save_checkpoint({
-            'epoch': epoch + 1,
-            'state_dict': model.state_dict(),
-            'best_acc1': best_acc,
-            'optimizer' : optimizer.state_dict()
-            }, is_best, path=CONFIGS["MISC"]["TMP"])
-
-        t = time.time() - start_time       
-        elapsed = DayHourMinute(t)
-        t /= (epoch + 1) - start_epoch    # seconds per epoch
-        t = (CONFIGS["TRAIN"]["EPOCHS"] - epoch - 1) * t
-        remaining = DayHourMinute(t)
-        
-        logger.info("Epoch {0}/{1} finishied, auxiliaries saved to {2} .\t"
-                    "Elapsed {elapsed.days:d} days {elapsed.hours:d} hours {elapsed.minutes:d} minutes.\t"
-                    "Remaining {remaining.days:d} days {remaining.hours:d} hours {remaining.minutes:d} minutes.".format(
-                    epoch, CONFIGS["TRAIN"]["EPOCHS"], CONFIGS["MISC"]["TMP"], elapsed=elapsed, remaining=remaining))
-
-    logger.info("Optimization done, ALL results saved to %s." % CONFIGS["MISC"]["TMP"])
-
-def train(train_loader, model, optimizer, epoch, writer, args):
+def train(train_loader, model, optimizer, epoch, writer, args, wandb_run):
     # switch to train mode
     model.train()
     # torch.cuda.empty_cache()
     bar = tqdm.tqdm(train_loader)
     iter_num = len(train_loader.dataset) // CONFIGS["DATA"]["BATCH_SIZE"]
 
+    images_wdb = []
     total_loss_hough = 0
     for i, data in enumerate(bar):
-
         images, hough_space_label8, names = data
+
+        if wandb_run:
+            if epoch==0 and i<3:
+                image_grid = batch_grid(images)
+                save_path = os.path.join(CONFIGS["MISC"]["TMP"], f'batch_{i}.png')
+                torchvision.utils.save_image(image_grid, save_path)
+                images_wdb.append(wandb.Image(save_path, caption=f'batch_{i}'))
+                if i==2:
+                    wandb_run.log({"training batch": images_wdb}, step=epoch)
+            
 
         if CONFIGS["TRAIN"]["DATA_PARALLEL"]:
             images = images.cuda()
@@ -201,8 +119,8 @@ def train(train_loader, model, optimizer, epoch, writer, args):
 
     total_loss_hough = total_loss_hough / iter_num
     writer.add_scalar('train/total_loss_hough', total_loss_hough, epoch)
+    return total_loss_hough
  
-
     
 def validate(val_loader, model, epoch, writer, args):
     # switch to evaluate mode
@@ -278,7 +196,7 @@ def validate(val_loader, model, epoch, writer, args):
         acc = 2 * total_precision * total_recall / (total_precision + total_recall + 1e-6)
         logger.info('Validation result: ==== F-score: %.5f' % acc.mean())
         writer.add_scalar('val/f-score', acc.mean(), epoch)
-    return acc.mean()
+    return total_loss_hough, acc.mean(), total_precision.mean(), total_recall.mean()
 
 
 def save_checkpoint(state, is_best, path, filename='checkpoint.pth.tar'):
@@ -286,19 +204,174 @@ def save_checkpoint(state, is_best, path, filename='checkpoint.pth.tar'):
     if is_best:
         shutil.copyfile(os.path.join(path, filename), os.path.join(path, 'model_best.pth'))
 
+
 def get_lr(optimizer):
     for param_group in optimizer.param_groups:
         return param_group['lr']
 
 
+def batch_grid(images):
+    image_grid = torchvision.utils.make_grid(images, nrow=4)
+    inv_normalize = transforms.Normalize(
+        mean=[-0.485/0.229, -0.456/0.224, -0.406/0.225],
+        std=[1/0.229, 1/0.224, 1/0.255]
+    )
+    return inv_normalize(image_grid)
 
 class DayHourMinute(object):
-  
-  def __init__(self, seconds):
-      
-      self.days = int(seconds // 86400)
-      self.hours = int((seconds- (self.days * 86400)) // 3600)
-      self.minutes = int((seconds - self.days * 86400 - self.hours * 3600) // 60)
+    def __init__(self, seconds):
+        self.days = int(seconds // 86400)
+        self.hours = int((seconds- (self.days * 86400)) // 3600)
+        self.minutes = int((seconds - self.days * 86400 - self.hours * 3600) // 60)
+
+
+def main():
+    logger.info(args)
+    assert os.path.isdir(CONFIGS["DATA"]["DIR"])
+
+    wandb_run = None
+    if WANDB_AVAILABLE:
+        run_name = 'fold{}'.format(CONFIGS["DATA"]["FOLD"])
+        wandb_run = wandb.init(project=f'RETECHLABS DHT shelves detection',
+                                name= run_name,
+                                reinit=True)
+
+    if CONFIGS['TRAIN']['SEED'] is not None:
+        random.seed(CONFIGS['TRAIN']['SEED'])
+        torch.manual_seed(CONFIGS['TRAIN']['SEED'])
+        cudnn.deterministic = True
+
+    model = Net(numAngle=CONFIGS["MODEL"]["NUMANGLE"], numRho=CONFIGS["MODEL"]["NUMRHO"], backbone=CONFIGS["MODEL"]["BACKBONE"])
+    
+    if CONFIGS["TRAIN"]["FREEZE_BACKBONE"]:
+        for param in model.backbone.parameters():
+            param.requires_grad = False
+
+    if CONFIGS["TRAIN"]["DATA_PARALLEL"]:
+        logger.info("Model Data Parallel")
+        model = nn.DataParallel(model).cuda()
+    else:
+        model = model.cuda(device=CONFIGS["TRAIN"]["GPU_ID"])
+
+    # optimizer
+    optimizer = torch.optim.Adam(
+        model.parameters(),
+        lr=CONFIGS["OPTIMIZER"]["LR"],
+        weight_decay=CONFIGS["OPTIMIZER"]["WEIGHT_DECAY"]
+    )
+
+    # learning rate scheduler
+    scheduler = lr_scheduler.MultiStepLR(optimizer,
+                            milestones=CONFIGS["OPTIMIZER"]["STEPS"],
+                            gamma=CONFIGS["OPTIMIZER"]["GAMMA"])
+    best_acc1 = 0
+
+    if CONFIGS["TRAIN"]["LOAD_WEIGHTS"]:
+        if isfile(CONFIGS["TRAIN"]["LOAD_WEIGHTS"]):
+            logger.info("=> loading checkpoint '{}'".format(CONFIGS["TRAIN"]["LOAD_WEIGHTS"]))
+            checkpoint = torch.load(CONFIGS["TRAIN"]["LOAD_WEIGHTS"])
+            model.load_state_dict(checkpoint['state_dict'])
+            # optimizer.load_state_dict(checkpoint['optimizer'])
+            logger.info("=> start from checkpoint '{}'"
+                  .format(CONFIGS["TRAIN"]["LOAD_WEIGHTS"]))
+        else:
+            logger.info("=> no checkpoint found at '{}'".format(CONFIGS["TRAIN"]["LOAD_WEIGHTS"]))
+
+    if args.resume:
+        if isfile(args.resume):
+            logger.info("=> loading checkpoint '{}'".format(args.resume))
+            checkpoint = torch.load(args.resume)
+            args.start_epoch = checkpoint['epoch']
+            best_acc1 = checkpoint['best_acc1']
+            model.load_state_dict(checkpoint['state_dict'])
+            # optimizer.load_state_dict(checkpoint['optimizer'])
+            logger.info("=> loaded checkpoint '{}' (epoch {})"
+                  .format(args.resume, checkpoint['epoch']))
+        else:
+            logger.info("=> no checkpoint found at '{}'".format(args.resume))
+
+    df_folds = pd.read_csv(CONFIGS["DATA"]["SPLIT_FILE"])
+    df_train = df_folds[df_folds.fold != CONFIGS["DATA"]["FOLD"]]
+    df_valid = df_folds[df_folds.fold == CONFIGS["DATA"]["FOLD"]]
+
+    # dataloader
+    train_loader = get_loader(CONFIGS["DATA"]["DIR"], 
+                              df_train, 
+                              batch_size=CONFIGS["DATA"]["BATCH_SIZE"], 
+                              num_thread=CONFIGS["DATA"]["WORKERS"], 
+                              split='train', 
+                              transform_name=CONFIGS['TRAIN']['AUG_TYPE'])
+    val_loader = get_loader(CONFIGS["DATA"]["VAL_DIR"], 
+                            df_valid, 
+                            batch_size=1, 
+                            num_thread=CONFIGS["DATA"]["WORKERS"], 
+                            split='val')
+
+    logger.info("Data loading done.")
+
+    # Tensorboard summary
+
+    writer = SummaryWriter(log_dir=os.path.join(CONFIGS["MISC"]["TMP"]))
+
+    start_epoch = 0
+    best_acc = best_acc1
+    is_best = False
+    start_time = time.time()
+
+    if CONFIGS["TRAIN"]["RESUME"] is not None:
+        raise(NotImplementedError)
+    
+    if CONFIGS["TRAIN"]["TEST"]:
+        validate(val_loader, model, 0, writer, args)
+        return
+
+    logger.info("Start training.")
+    metrics = {}
+
+    for epoch in range(start_epoch, CONFIGS["TRAIN"]["EPOCHS"]):
+        
+        train_loss = train(train_loader, model, optimizer, epoch, writer, args, wandb_run)
+        valid_loss, valid_f1, valid_precision, valid_recall = validate(val_loader, model, epoch, writer, args)
+
+        metrics['train_loss'] = train_loss
+        metrics['valid_loss'] = valid_loss
+        metrics['valid_acc_f1'] = valid_f1
+        metrics['valid_precision'] = valid_precision
+        metrics['valid_recall'] = valid_recall
+
+        #return
+        scheduler.step()
+
+        if WANDB_AVAILABLE:
+            wandb.log(metrics, step=epoch)
+
+        if best_acc < valid_f1:
+            is_best = True
+            best_acc = valid_f1
+        else:
+            is_best = False
+
+        save_checkpoint({
+            'epoch': epoch + 1,
+            'state_dict': model.state_dict(),
+            'best_acc1': best_acc,
+            'optimizer' : optimizer.state_dict()
+            }, is_best, path=CONFIGS["MISC"]["TMP"])
+
+        t = time.time() - start_time       
+        elapsed = DayHourMinute(t)
+        t /= (epoch + 1) - start_epoch    # seconds per epoch
+        t = (CONFIGS["TRAIN"]["EPOCHS"] - epoch - 1) * t
+        remaining = DayHourMinute(t)
+        
+        logger.info("Epoch {0}/{1} finishied, auxiliaries saved to {2} .\t"
+                    "Elapsed {elapsed.days:d} days {elapsed.hours:d} hours {elapsed.minutes:d} minutes.\t"
+                    "Remaining {remaining.days:d} days {remaining.hours:d} hours {remaining.minutes:d} minutes.".format(
+                    epoch, CONFIGS["TRAIN"]["EPOCHS"], CONFIGS["MISC"]["TMP"], elapsed=elapsed, remaining=remaining))
+
+    logger.info("Optimization done, ALL results saved to %s." % CONFIGS["MISC"]["TMP"])
+    if wandb_run is not None:
+        wandb_run.finish()
 
 
 if __name__ == '__main__':

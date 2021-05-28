@@ -1,5 +1,6 @@
 import numpy as np 
 import os
+import cv2
 from os.path import join, split, isdir, isfile, abspath
 import torch
 from PIL import Image
@@ -7,28 +8,32 @@ import random
 import collections
 from torchvision import transforms
 from torch.utils.data import Dataset, DataLoader
-
+from pathlib import Path
+from .transforms import get_transformations
 
 
 class SemanLineDataset(Dataset):
-
-    def __init__(self, root_dir, label_file, split='train', transform=None, t_transform=None):
-        lines = [line.rstrip('\n') for line in open(label_file)]
-        self.image_path = [join(root_dir, i+".jpg") for i in lines]
-        self.data_path = [join(root_dir, i+".npy") for i in lines]
+    def __init__(self, root_dir, df_names, split='train', transform=None):
+        lines = df_names['file_name'].tolist()
+        lines_with_flip = lines.copy()
+        for l in lines:
+            lines_with_flip.append(str(l)+'_flip')
+        lines = lines_with_flip
+        self.image_path = [join(root_dir, str(i)+".jpg") for i in lines]
+        self.data_path = [join(root_dir, str(i)+".npy") for i in lines]
         self.split = split
         self.transform = transform
-        self.t_transform = t_transform
     
     def __getitem__(self, item):
-
         assert isfile(self.image_path[item]), self.image_path[item]
-        image = Image.open(self.image_path[item]).convert('RGB')
+        image = cv2.imread(self.image_path[item])
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
         data = np.load(self.data_path[item], allow_pickle=True).item()
         hough_space_label8 = data["hough_space_label8"].astype(np.float32)
-        if self.transform is not None:
-            image = self.transform(image)
+        if self.transform:
+            augmented = self.transform(image=image)
+            image = augmented['image']
             
         hough_space_label8 = torch.from_numpy(hough_space_label8).unsqueeze(0)
         if self.split == 'val':
@@ -40,45 +45,51 @@ class SemanLineDataset(Dataset):
     def __len__(self):
         return len(self.image_path)
 
-class SemanLineDatasetTest(Dataset):
 
-    def __init__(self, root_dir, label_file, transform=None, t_transform=None):
-        lines = [line.rstrip('\n') for line in open(label_file)]
-        self.image_path = [join(root_dir, i+".jpg") for i in lines]
+class SemanLineDatasetTest(Dataset):
+    def __init__(self, root_dir, transform=None):
+        root_path_dir = Path(root_dir)
+        self.image_path = [str(l) for l in list(root_path_dir.glob('*.jpeg'))]
         self.transform = transform
-        self.t_transform = t_transform
         
     def __getitem__(self, item):
-
         assert isfile(self.image_path[item]), self.image_path[item]
-        image = Image.open(self.image_path[item]).convert('RGB')
+        image = cv2.imread(self.image_path[item])
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
-        if self.transform is not None:
-            image = self.transform(image)
+        if self.transform:
+            augmented = self.transform(image=image)
+            image = augmented['image']
             
-        return image, self.image_path[item].split('/')[-1]
-
+        return image, self.image_path[item]
 
     def __len__(self):
         return len(self.image_path)
 
-def get_loader(root_dir, label_file, batch_size, img_size=0, num_thread=4, pin=True, test=False, split='train'):
+
+def get_loader(root_dir, df_names, batch_size, img_size=400, 
+                                               num_thread=4, 
+                                               pin=True, 
+                                               test=False, 
+                                               split='train',
+                                               transform_name='no_aug'):
+
     if test is False:
-        transform = transforms.Compose([
-        # transforms.Resize((400, 400)),#   Not used for current version.
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-        ])
-        dataset = SemanLineDataset(root_dir, label_file, transform=transform, t_transform=None, split=split)
+        transform_train = get_transformations(transform_name)
+        dataset = SemanLineDataset(root_dir=root_dir, 
+                                   df_names=df_names, 
+                                   transform=transform_train, 
+                                   split=split)
     else:
-        transform = transforms.Compose([
-        transforms.Resize((400, 400)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-        ])
-        dataset = SemanLineDatasetTest(root_dir, label_file, transform=transform, t_transform=None)
-    data_loader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=True, num_workers=num_thread,
-                                    pin_memory=pin)
+        transform_test = get_transformations('test_aug', image_size=img_size)
+        dataset = SemanLineDatasetTest(root_dir=root_dir, 
+                                       transform=transform_test)
+
+    data_loader = DataLoader(dataset=dataset, 
+                             batch_size=batch_size, 
+                             shuffle=True, 
+                             num_workers=num_thread,
+                             pin_memory=pin)
     return data_loader
 
         

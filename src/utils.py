@@ -69,11 +69,26 @@ def reverse_mapping(point_list, numAngle, numRho, size=(32, 32)):
     return b_points
 
 def visulize_mapping(b_points, size, filename):
-    img = cv2.imread(os.path.join('./data/ICCV2017_JTLEE_images', filename)) #change the path when using other dataset.
+    img = cv2.imread(filename) #change the path when using other dataset.
     img = cv2.resize(img, size)
     for (y1, x1, y2, x2) in b_points:
-        img = cv2.line(img, (x1, y1), (x2, y2), (255, 255, 0), thickness=3)
+        img = cv2.line(img, (x1, y1), (x2, y2), (255, 255, 0), thickness=5)
     return img
+
+
+def visulize_mapping_orig(b_points, size, filename):
+    img = cv2.imread(filename) #change the path when using other dataset.
+    img_h, img_w, _ = img.shape
+    sw = img_w / size[1]
+    sh = img_h / size[0]
+    for (y1, x1, y2, x2) in b_points:
+        x1_s = int(sw * x1)
+        x2_s = int(sw * x2)
+        y1_s = int(sh * y1)
+        y2_s = int(sh * y2)
+        img = cv2.line(img, (x1_s, y1_s), (x2_s, y2_s), (255, 255, 0), thickness=9)
+    return img
+
 
 def caculate_precision(b_points, gt_coords, thresh=0.90):
     N = len(b_points)

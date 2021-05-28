@@ -1,3 +1,4 @@
+wandb/
 data/datasets/
 result/
 *.pth

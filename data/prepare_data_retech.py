@@ -9,10 +9,12 @@ sys.path.insert(0, abspath(".."))
 sys.path.insert(0, abspath("."))
 
 from pathlib import Path
+from sklearn.model_selection import KFold
 from skimage.measure import label, regionprops
 from src.utils import Line, LineAnnotation, line2hough
 from easydict import EasyDict
 
+import pandas as pd
 import matplotlib.pyplot as plt
 
 
@@ -38,7 +40,7 @@ def get_lines_from_txt(label_file, for_viz=False):
             data1 = line.strip().split(',')
             if len(data1) <= 3:
                 continue
-            data1 = [int(float(x)) for x in data1] # x1, y1, x2, y2
+            data1 = [int(float(x)) for x in data1 if x!=''] # x1, y1, x2, y2
             if data1[1]==data1[3] and data1[0]==data1[2]:
                 continue
             lines.append([data1[1], data1[0], data1[3], data1[2]]) # y1, x1, y2, x2
@@ -145,6 +147,22 @@ def prepare_data(args, labels_files, save_dir='./'):
             cv2.imwrite(str(save_name) + '_mask.jpg', mask*255)
 
 
+def make_k_fold_split(labels_files, k=5, save_dir='./'):
+    RANDOM_STATE = 28
+
+    labels_files_names = [l.stem for l in labels_files]
+    df_folds = pd.DataFrame(labels_files_names, columns =['file_name'])
+    kfold = KFold(n_splits=k, random_state=RANDOM_STATE, shuffle=True)
+
+
+    for fold, (train_index, valid_index) in enumerate(kfold.split(labels_files_names)):
+        df_folds.loc[valid_index, 'fold'] = int(fold)
+
+    df_folds['fold'] = df_folds['fold'].astype(int)
+    df_folds.to_csv(save_dir / 'folds.csv', index=False)
+
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Prepare semantic line data format.")
     parser.add_argument('--root', type=str, required=True, help='the data root dir.')
@@ -153,6 +171,7 @@ if __name__ == '__main__':
     parser.add_argument('--fixsize', type=int, default=None, help='fix resize of images and annotations')
     parser.add_argument('--numangle', type=int, default=80, required=True)
     parser.add_argument('--numrho', type=int, default=80, required=True)
+    parser.add_argument('--k', type=int, default=5)
     args = parser.parse_args()
 
     data_dir = Path(abspath(args.root)).resolve()
@@ -163,3 +182,5 @@ if __name__ == '__main__':
     labels_files = list(data_dir.glob('*.txt'))
 
     prepare_data(args, labels_files, save_dir=save_dir)
+    make_k_fold_split(labels_files, k=args.k, save_dir=save_dir)
+
