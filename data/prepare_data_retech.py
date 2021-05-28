@@ -3,7 +3,7 @@ import cv2
 from PIL import Image
 import argparse
 import os, sys
-
+from tqdm.auto import tqdm
 from os.path import join, split, splitext, abspath, isfile
 sys.path.insert(0, abspath(".."))
 sys.path.insert(0, abspath("."))
@@ -181,11 +181,6 @@ if __name__ == '__main__':
     save_dir.mkdir(exist_ok=True)
 
     labels_files = list(data_dir.glob('*.txt'))
-
-    if args.is_notebook:
-        from tqdm.notebook import tqdm
-    else:
-        from tqdm.auto import tqdm
 
     prepare_data(args, labels_files, save_dir=save_dir)
     make_k_fold_split(labels_files, k=args.k, save_dir=save_dir)
