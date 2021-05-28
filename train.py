@@ -13,7 +13,6 @@ import torch.backends.cudnn as cudnn
 import numpy as np
 import pandas as pd
 import torch.optim
-from tqdm.auto import tqdm
 import yaml
 from torch.optim import lr_scheduler
 
@@ -39,7 +38,13 @@ parser = argparse.ArgumentParser(description='PyTorch Semantic-Line Training')
 parser.add_argument('--config', default="./configs/default_config.yml", help="path to config file")
 parser.add_argument('--resume', default="", help='path to config file')
 parser.add_argument('--tmp', default="", help='tmp')
+
 args = parser.parse_args()
+
+if args.is_notebook:
+    from tqdm.notebook import tqdm
+else:
+    from tqdm.auto import tqdm
 
 assert os.path.isfile(args.config)
 CONFIGS = yaml.load(open(args.config))
