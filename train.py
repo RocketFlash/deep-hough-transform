@@ -13,7 +13,7 @@ import torch.backends.cudnn as cudnn
 import numpy as np
 import pandas as pd
 import torch.optim
-import tqdm
+from tqdm.auto import tqdm
 import yaml
 from torch.optim import lr_scheduler
 
@@ -63,7 +63,7 @@ def train(train_loader, model, optimizer, epoch, writer, args, wandb_run):
     # switch to train mode
     model.train()
     # torch.cuda.empty_cache()
-    bar = tqdm.tqdm(train_loader)
+    bar = tqdm(train_loader)
     iter_num = len(train_loader.dataset) // CONFIGS["DATA"]["BATCH_SIZE"]
 
     images_wdb = []
@@ -133,7 +133,7 @@ def validate(val_loader, model, epoch, writer, args):
     nums_precision = 0
     nums_recall = 0
     with torch.no_grad():
-        bar = tqdm.tqdm(val_loader)
+        bar = tqdm(val_loader)
         iter_num = len(val_loader.dataset) // 1
         for i, data in enumerate(bar):
 

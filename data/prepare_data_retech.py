@@ -3,7 +3,7 @@ import cv2
 from PIL import Image
 import argparse
 import os, sys
-from tqdm import tqdm
+from tqdm.auto import tqdm
 from os.path import join, split, splitext, abspath, isfile
 sys.path.insert(0, abspath(".."))
 sys.path.insert(0, abspath("."))
