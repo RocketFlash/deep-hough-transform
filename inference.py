@@ -128,7 +128,7 @@ def infer(image, model, input_size=(400,400), threshold=0.01, num_angle=100, num
         x2_s = int(sw * x2)
         y1_s = int(sh * y1)
         y2_s = int(sh * y2)
-        lines.append(x1_s,y1_s,x2_s,y2_s)
+        lines.append([x1_s,y1_s,x2_s,y2_s])
     
     return np.array(lines)
 
