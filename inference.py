@@ -38,20 +38,33 @@ if args.tmp != "" and args.tmp != CONFIGS["MISC"]["TMP"]:
 os.makedirs(CONFIGS["MISC"]["TMP"], exist_ok=True)
 logger = Logger(os.path.join(CONFIGS["MISC"]["TMP"], "log.txt"))
 
+
+def get_model(num_angle=100, num_rho=100, backbone='resmet50', device=0):
+    model = Net(numAngle=num_angle, 
+                numRho=num_rho, 
+                backbone=backbone)
+    model = model.cuda(device=device)
+    return model
+
+def load_weights(model, weights_path):
+    checkpoint = torch.load(weights_path)
+    model.load_state_dict(checkpoint['state_dict'])
+    return checkpoint
+
+
 def main():
 
     logger.info(args)
 
-    model = Net(numAngle=CONFIGS["MODEL"]["NUMANGLE"], 
-                numRho=CONFIGS["MODEL"]["NUMRHO"], 
-                backbone=CONFIGS["MODEL"]["BACKBONE"])
-    model = model.cuda(device=CONFIGS["TRAIN"]["GPU_ID"])
+    model = get_model(num_angle=CONFIGS["MODEL"]["NUMANGLE"], 
+                      num_rho=CONFIGS["MODEL"]["NUMRHO"], 
+                      backbone=CONFIGS["MODEL"]["BACKBONE"], 
+                      device=CONFIGS["TRAIN"]["GPU_ID"])
 
     if args.model:
         if isfile(args.model):
             logger.info("=> loading pretrained model '{}'".format(args.model))
-            checkpoint = torch.load(args.model)
-            model.load_state_dict(checkpoint['state_dict'])
+            checkpoint = load_weights(model, args.model)
             logger.info("=> loaded checkpoint '{}' (epoch {})"
                   .format(args.model, checkpoint['epoch']))
         else:
