@@ -96,7 +96,7 @@ def infer(image, model, input_size=(400,400), threshold=0.01, num_angle=100, num
     key_points = model(images)
     key_points = torch.sigmoid(key_points)
 
-    binary_kmap = key_points.squeeze().cpu().numpy() > threshold
+    binary_kmap = key_points.squeeze().detach().numpy() > threshold
     kmap_label = label(binary_kmap, connectivity=1)
     props = regionprops(kmap_label)
     plist = []
