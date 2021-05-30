@@ -20,26 +20,9 @@ from src.utils import reverse_mapping, visulize_mapping_orig
 from src.basic_ops import *
 from src.transforms import get_transformations
 
-parser = argparse.ArgumentParser(description='PyTorch Semantic-Line Training')
-# arguments from command line
-parser.add_argument('--config', default="./configs/default_config.yml", help="path to config file")
-parser.add_argument('--model', required=True, help='path to the pretrained model')
-parser.add_argument('--source', required=True, help='path to the data')
-parser.add_argument('--tmp', default="", help='tmp')
-args = parser.parse_args()
-
-assert os.path.isfile(args.config)
-CONFIGS = yaml.load(open(args.config))
-
-# merge configs
-if args.tmp != "" and args.tmp != CONFIGS["MISC"]["TMP"]:
-    CONFIGS["MISC"]["TMP"] = args.tmp
-
-os.makedirs(CONFIGS["MISC"]["TMP"], exist_ok=True)
-logger = Logger(os.path.join(CONFIGS["MISC"]["TMP"], "log.txt"))
 
 
-def get_model(num_angle=100, num_rho=100, backbone='resmet50', device=0):
+def get_model(num_angle=100, num_rho=100, backbone='resnet50', device=0):
     model = Net(numAngle=num_angle, 
                 numRho=num_rho, 
                 backbone=backbone)
@@ -53,6 +36,23 @@ def load_weights(model, weights_path):
 
 
 def main():
+    parser = argparse.ArgumentParser(description='PyTorch Semantic-Line Training')
+    # arguments from command line
+    parser.add_argument('--config', default="./configs/default_config.yml", help="path to config file")
+    parser.add_argument('--model', required=True, help='path to the pretrained model')
+    parser.add_argument('--source', required=True, help='path to the data')
+    parser.add_argument('--tmp', default="", help='tmp')
+    args = parser.parse_args()
+
+    assert os.path.isfile(args.config)
+    CONFIGS = yaml.load(open(args.config))
+
+    # merge configs
+    if args.tmp != "" and args.tmp != CONFIGS["MISC"]["TMP"]:
+        CONFIGS["MISC"]["TMP"] = args.tmp
+
+    os.makedirs(CONFIGS["MISC"]["TMP"], exist_ok=True)
+    logger = Logger(os.path.join(CONFIGS["MISC"]["TMP"], "log.txt"))
 
     logger.info(args)
 
@@ -82,7 +82,7 @@ def main():
     logger.info("Test done! Total %d imgs at %.4f secs without image io, fps: %.3f" % (len(test_loader), total_time, len(test_loader) / total_time))
 
 
-def infer(image, model, input_size=(400,400), threshold=0.01):
+def infer(image, model, input_size=(400,400), threshold=0.01, num_angle=100, num_rho=100):
     transform = get_transformations('test_aug', image_size=input_size)
     
     augmented = transform(image=image)
@@ -104,7 +104,7 @@ def infer(image, model, input_size=(400,400), threshold=0.01):
         plist.append(prop.centroid)
 
     #size = (400, 400) #change it when using other dataset.
-    b_points = reverse_mapping(plist, numAngle=CONFIGS["MODEL"]["NUMANGLE"], numRho=CONFIGS["MODEL"]["NUMRHO"], size=input_size)
+    b_points = reverse_mapping(plist, numAngle=num_angle, numRho=num_rho, size=input_size)
     scale_w = size[1] / 400
     scale_h = size[0] / 400
     for i in range(len(b_points)):
@@ -133,7 +133,7 @@ def infer(image, model, input_size=(400,400), threshold=0.01):
     return np.array(lines)
 
         
-def test(test_loader, model, args):
+def test(test_loader, model, args, CONFIGS, logger):
     # switch to evaluate mode
     model.eval()
     with torch.no_grad():

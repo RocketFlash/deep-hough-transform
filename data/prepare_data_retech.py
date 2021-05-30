@@ -119,6 +119,7 @@ def prepare_data(args, labels_files, save_dir='./'):
             
             if args.save_vis:
                 vis, mask = vis_anno(im, annotation)
+                
             hough_space_label = np.zeros((args.numangle, args.numrho))
 
             for l in annotation.lines:
