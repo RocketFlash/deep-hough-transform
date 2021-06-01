@@ -1,0 +1,41 @@
+DATA:
+    DIR: "/home/rauf/datasets/retechlabs/shelves_detection/nestle/gts_prepared/"
+    VAL_DIR: "/home/rauf/datasets/retechlabs/shelves_detection/nestle/gts_prepared/"
+    TEST_DIR: "/home/rauf/datasets/retechlabs/shelves_detection/nestle/gts_prepared/"
+    SPLIT_FILE: "/home/rauf/datasets/retechlabs/shelves_detection/nestle/gts_prepared/folds.csv"
+    FOLD: 0
+    BATCH_SIZE: 8
+    WORKERS: 0
+
+OPTIMIZER:
+    OPTIMIZER_TYPE: 'adam'
+    LR: 2e-4
+    MOMENTUM: 0.9
+    WEIGHT_DECAY: 0.0
+
+    SHEDULER_TYPE: 'cosine'
+    T_MAX: 50
+    ETA_MIN: 2e-5
+
+MODEL:
+    NUMANGLE: 100
+    NUMRHO: 100
+    THRESHOLD: 0.01
+    BACKBONE: resnet50 
+    # only support : resnet18, resnet50, resnet101, mobilenetv2, resnext50, res2net50, vgg16
+
+TRAIN:
+    EPOCHS: 50
+    PRINT_FREQ: 10
+    TEST: False
+    SEED: 28
+    GPU_ID: 0
+    DATA_PARALLEL: False
+    RESUME: 
+    FREEZE_BACKBONE: False
+    AUG_TYPE: 'soft'
+    LOAD_WEIGHTS: 
+
+MISC:
+    RETAILER: 'nestle'
+    TMP: "./work_dirs/"

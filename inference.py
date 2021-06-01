@@ -77,7 +77,7 @@ def main():
     
     
     logger.info("Start testing.")
-    total_time = test(test_loader, model, args)
+    total_time = test(test_loader, model, args, CONFIGS, logger)
     
     logger.info("Test done! Total %d imgs at %.4f secs without image io, fps: %.3f" % (len(test_loader), total_time, len(test_loader) / total_time))
 

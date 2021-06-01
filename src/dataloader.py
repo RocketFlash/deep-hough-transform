@@ -67,7 +67,7 @@ class SemanLineDatasetTest(Dataset):
         return len(self.image_path)
 
 
-def get_loader(root_dir, df_names, batch_size, img_size=400, 
+def get_loader(root_dir, df_names, batch_size, img_size=(400,400), 
                                                num_thread=4, 
                                                pin=True, 
                                                test=False, 

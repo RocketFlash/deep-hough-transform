@@ -6,6 +6,9 @@ import os
 import torchvision
 from .metric import EA_metric
 from .basic_ops import *
+import shutil
+from torchvision import transforms
+
 
 def draw_line(y, x, angle, image, color=(0,0,255), num_directions=24):
     '''
@@ -117,4 +120,30 @@ def caculate_recall(b_points, gt_coords, thresh=0.90):
             l_pred = Line(list(coord_p))
             ea[i] = max(ea[i], EA_metric(l_pred, l_gt))
     return (ea >= thresh).sum(), N
+
+
+def save_checkpoint(state, is_best, path, filename='checkpoint.pth.tar'):
+    torch.save(state, os.path.join(path, filename))
+    if is_best:
+        shutil.copyfile(os.path.join(path, filename), os.path.join(path, 'model_best.pth'))
+
+
+def get_lr(optimizer):
+    for param_group in optimizer.param_groups:
+        return param_group['lr']
+
+
+def batch_grid(images):
+    image_grid = torchvision.utils.make_grid(images, nrow=4)
+    inv_normalize = transforms.Normalize(
+        mean=[-0.485/0.229, -0.456/0.224, -0.406/0.225],
+        std=[1/0.229, 1/0.224, 1/0.255]
+    )
+    return inv_normalize(image_grid)
+
+class DayHourMinute(object):
+    def __init__(self, seconds):
+        self.days = int(seconds // 86400)
+        self.hours = int((seconds- (self.days * 86400)) // 3600)
+        self.minutes = int((seconds - self.days * 86400 - self.hours * 3600) // 60)
 

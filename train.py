@@ -1,30 +1,30 @@
 import argparse
 import os
 import random
-import shutil
 import time
 from os.path import isfile, join, split
 
 import torch
 import torchvision
-from torchvision import transforms
 import torch.nn as nn
 import torch.backends.cudnn as cudnn
 import numpy as np
 import pandas as pd
-import torch.optim
 from tqdm.auto import tqdm
 import yaml
-from torch.optim import lr_scheduler
-
 
 from src.dataloader import get_loader
 from src.model.network import Net
+from src.schedulers import get_scheduler
+from src.optimizers import get_optimizer
 from src.logger import Logger
 from src.utils import reverse_mapping, caculate_precision, caculate_recall
+from src.utils import save_checkpoint, get_lr, batch_grid, DayHourMinute
+
 
 from skimage.measure import label, regionprops
 from tensorboardX import SummaryWriter
+
 
 WANDB_AVAILABLE = False
 try:
@@ -34,33 +34,7 @@ except ModuleNotFoundError:
     print('wandb is not installed')
 
 
-parser = argparse.ArgumentParser(description='PyTorch Semantic-Line Training')
-# arguments from command line
-parser.add_argument('--config', default="./configs/default_config.yml", help="path to config file")
-parser.add_argument('--resume', default="", help='path to config file')
-parser.add_argument('--tmp', default="", help='tmp')
-
-args = parser.parse_args()
-
-assert os.path.isfile(args.config)
-CONFIGS = yaml.load(open(args.config))
-
-# merge configs
-if args.tmp != "" and args.tmp != CONFIGS["MISC"]["TMP"]:
-    CONFIGS["MISC"]["TMP"] = args.tmp
-
-CONFIGS["OPTIMIZER"]["WEIGHT_DECAY"] = float(CONFIGS["OPTIMIZER"]["WEIGHT_DECAY"])
-CONFIGS["OPTIMIZER"]["LR"] = float(CONFIGS["OPTIMIZER"]["LR"])
-
-os.makedirs(CONFIGS["MISC"]["TMP"], exist_ok=True)
-logger = Logger(os.path.join(CONFIGS["MISC"]["TMP"], "log.txt"))
-
-
-
-logger.info(CONFIGS)
-
-
-def train(train_loader, model, optimizer, epoch, writer, args, wandb_run):
+def train(train_loader, model, optimizer, epoch, writer):
     # switch to train mode
     model.train()
     # torch.cuda.empty_cache()
@@ -72,15 +46,12 @@ def train(train_loader, model, optimizer, epoch, writer, args, wandb_run):
     for i, data in enumerate(bar):
         images, hough_space_label8, names = data
 
-        if wandb_run:
+        if WANDB_AVAILABLE:
             if epoch==0 and i<3:
                 image_grid = batch_grid(images)
-                save_path = os.path.join(CONFIGS["MISC"]["TMP"], f'batch_{i}.png')
+                save_path = os.path.join(CONFIGS["MISC"]['WORK_DIR'], f'train_batch_{i}.png')
                 torchvision.utils.save_image(image_grid, save_path)
-                images_wdb.append(wandb.Image(save_path, caption=f'batch_{i}'))
-                if i==2:
-                    wandb_run.log({"training batch": images_wdb}, step=epoch)
-            
+                images_wdb.append(wandb.Image(save_path, caption=f'train_batch_{i}'))
 
         if CONFIGS["TRAIN"]["DATA_PARALLEL"]:
             images = images.cuda()
@@ -90,7 +61,6 @@ def train(train_loader, model, optimizer, epoch, writer, args, wandb_run):
             hough_space_label8 = hough_space_label8.cuda(device=CONFIGS["TRAIN"]["GPU_ID"])
             
         keypoint_map = model(images)
-
         hough_space_loss = torch.nn.functional.binary_cross_entropy_with_logits(keypoint_map, hough_space_label8)
 
         writer.add_scalar('train/hough_space_loss', hough_space_loss.item(), epoch * iter_num + i)
@@ -103,15 +73,15 @@ def train(train_loader, model, optimizer, epoch, writer, args, wandb_run):
             logger.info("Warnning: loss is Nan.")
 
         #record loss
-        bar.set_description('Training Loss:{}'.format(loss.item()))
-        
+        bar.set_description('Epoch [{:3}/{}]'.format(epoch, CONFIGS["TRAIN"]['EPOCHS']))
+        bar.set_postfix({'loss:' : round(loss.item(), 8)})
         # compute gradient and do SGD step
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
 
         if i % CONFIGS["TRAIN"]["PRINT_FREQ"] == 0:
-            visualize_save_path = os.path.join(CONFIGS["MISC"]["TMP"], 'visualize', str(epoch))
+            visualize_save_path = os.path.join(CONFIGS["MISC"]['WORK_DIR'], 'visualize', str(epoch))
             os.makedirs(visualize_save_path, exist_ok=True)
             
             # Do visualization.
@@ -120,10 +90,10 @@ def train(train_loader, model, optimizer, epoch, writer, args, wandb_run):
 
     total_loss_hough = total_loss_hough / iter_num
     writer.add_scalar('train/total_loss_hough', total_loss_hough, epoch)
-    return total_loss_hough
+    return total_loss_hough, images_wdb
  
     
-def validate(val_loader, model, epoch, writer, args):
+def validate(val_loader, model, epoch, writer):
     # switch to evaluate mode
     model.eval()
     total_acc = 0.0
@@ -134,11 +104,19 @@ def validate(val_loader, model, epoch, writer, args):
     nums_precision = 0
     nums_recall = 0
     with torch.no_grad():
+        images_wdb = []
         bar = tqdm(val_loader)
         iter_num = len(val_loader.dataset) // 1
         for i, data in enumerate(bar):
 
             images, hough_space_label8, gt_coords, names = data
+
+            if WANDB_AVAILABLE:
+                if epoch==0 and i<3:
+                    image_grid = batch_grid(images)
+                    save_path = os.path.join(CONFIGS["MISC"]['WORK_DIR'], f'valid_batch_{i}.png')
+                    torchvision.utils.save_image(image_grid, save_path)
+                    images_wdb.append(wandb.Image(save_path, caption=f'valid_batch_{i}'))
 
             if CONFIGS["TRAIN"]["DATA_PARALLEL"]:
                 images = images.cuda()
@@ -168,7 +146,9 @@ def validate(val_loader, model, epoch, writer, args):
             plist = []
             for prop in props:
                 plist.append(prop.centroid)
-            b_points = reverse_mapping(plist, numAngle=CONFIGS["MODEL"]["NUMANGLE"], numRho=CONFIGS["MODEL"]["NUMRHO"], size=(400, 400))
+            b_points = reverse_mapping(plist, numAngle=CONFIGS["MODEL"]["NUMANGLE"], 
+                                              numRho=CONFIGS["MODEL"]["NUMRHO"], 
+                                              size=(400, 400))
             # [[y1, x1, y2, x2], [] ...]
             gt_coords = gt_coords[0].numpy().tolist()
             for i in range(1, 100):
@@ -197,33 +177,7 @@ def validate(val_loader, model, epoch, writer, args):
         acc = 2 * total_precision * total_recall / (total_precision + total_recall + 1e-6)
         logger.info('Validation result: ==== F-score: %.5f' % acc.mean())
         writer.add_scalar('val/f-score', acc.mean(), epoch)
-    return total_loss_hough, acc.mean(), total_precision.mean(), total_recall.mean()
-
-
-def save_checkpoint(state, is_best, path, filename='checkpoint.pth.tar'):
-    torch.save(state, os.path.join(path, filename))
-    if is_best:
-        shutil.copyfile(os.path.join(path, filename), os.path.join(path, 'model_best.pth'))
-
-
-def get_lr(optimizer):
-    for param_group in optimizer.param_groups:
-        return param_group['lr']
-
-
-def batch_grid(images):
-    image_grid = torchvision.utils.make_grid(images, nrow=4)
-    inv_normalize = transforms.Normalize(
-        mean=[-0.485/0.229, -0.456/0.224, -0.406/0.225],
-        std=[1/0.229, 1/0.224, 1/0.255]
-    )
-    return inv_normalize(image_grid)
-
-class DayHourMinute(object):
-    def __init__(self, seconds):
-        self.days = int(seconds // 86400)
-        self.hours = int((seconds- (self.days * 86400)) // 3600)
-        self.minutes = int((seconds - self.days * 86400 - self.hours * 3600) // 60)
+    return total_loss_hough, acc.mean(), total_precision.mean(), total_recall.mean(), images_wdb
 
 
 def main():
@@ -231,10 +185,11 @@ def main():
     assert os.path.isdir(CONFIGS["DATA"]["DIR"])
 
     wandb_run = None
+    best_acc1 = 0
+
     if WANDB_AVAILABLE:
-        run_name = 'fold{}'.format(CONFIGS["DATA"]["FOLD"])
         wandb_run = wandb.init(project=f'RETECHLABS DHT shelves detection',
-                                name= run_name,
+                                name= CONFIGS["MISC"]['RUN_NAME'],
                                 reinit=True)
 
     if CONFIGS['TRAIN']['SEED'] is not None:
@@ -242,7 +197,9 @@ def main():
         torch.manual_seed(CONFIGS['TRAIN']['SEED'])
         cudnn.deterministic = True
 
-    model = Net(numAngle=CONFIGS["MODEL"]["NUMANGLE"], numRho=CONFIGS["MODEL"]["NUMRHO"], backbone=CONFIGS["MODEL"]["BACKBONE"])
+    model = Net(numAngle=CONFIGS["MODEL"]["NUMANGLE"], 
+                numRho=CONFIGS["MODEL"]["NUMRHO"], 
+                backbone=CONFIGS["MODEL"]["BACKBONE"])
     
     if CONFIGS["TRAIN"]["FREEZE_BACKBONE"]:
         for param in model.backbone.parameters():
@@ -255,17 +212,10 @@ def main():
         model = model.cuda(device=CONFIGS["TRAIN"]["GPU_ID"])
 
     # optimizer
-    optimizer = torch.optim.Adam(
-        model.parameters(),
-        lr=CONFIGS["OPTIMIZER"]["LR"],
-        weight_decay=CONFIGS["OPTIMIZER"]["WEIGHT_DECAY"]
-    )
+    optimizer = get_optimizer(model, CONFIGS["OPTIMIZER"])
 
     # learning rate scheduler
-    scheduler = lr_scheduler.MultiStepLR(optimizer,
-                            milestones=CONFIGS["OPTIMIZER"]["STEPS"],
-                            gamma=CONFIGS["OPTIMIZER"]["GAMMA"])
-    best_acc1 = 0
+    scheduler = get_scheduler(optimizer, CONFIGS["OPTIMIZER"])
 
     if CONFIGS["TRAIN"]["LOAD_WEIGHTS"]:
         if isfile(CONFIGS["TRAIN"]["LOAD_WEIGHTS"]):
@@ -312,7 +262,7 @@ def main():
 
     # Tensorboard summary
 
-    writer = SummaryWriter(log_dir=os.path.join(CONFIGS["MISC"]["TMP"]))
+    writer = SummaryWriter(log_dir=os.path.join(CONFIGS["MISC"]['WORK_DIR']))
 
     start_epoch = 0
     best_acc = best_acc1
@@ -327,37 +277,39 @@ def main():
         return
 
     logger.info("Start training.")
-    metrics = {}
 
     for epoch in range(start_epoch, CONFIGS["TRAIN"]["EPOCHS"]):
         
-        train_loss = train(train_loader, model, optimizer, epoch, writer, args, wandb_run)
-        valid_loss, valid_f1, valid_precision, valid_recall = validate(val_loader, model, epoch, writer, args)
+        train_loss, images_wdb_train = train(train_loader, model, optimizer, epoch, writer)
+        valid_loss, valid_f1, valid_precision, valid_recall, images_wdb_valid = validate(val_loader, model, epoch, writer)
 
-        metrics['train_loss'] = train_loss
-        metrics['valid_loss'] = valid_loss
-        metrics['valid_acc_f1'] = valid_f1
-        metrics['valid_precision'] = valid_precision
-        metrics['valid_recall'] = valid_recall
+        metrics = {
+            'train_loss' : train_loss,
+            'valid_loss' : valid_loss,
+            'valid_acc_f1' : valid_f1,
+            'valid_precision' : valid_precision,
+            'valid_recall' : valid_recall,
+            'lr' : get_lr(optimizer)
+        }
 
-        #return
+        if images_wdb_train and images_wdb_valid:
+            metrics["training batch"] = images_wdb_train
+            metrics["validation batch"] = images_wdb_valid
+
         scheduler.step()
 
         if WANDB_AVAILABLE:
             wandb.log(metrics, step=epoch)
 
-        if best_acc < valid_f1:
-            is_best = True
-            best_acc = valid_f1
-        else:
-            is_best = False
+        is_best = best_acc < valid_f1
+        best_acc = valid_f1 if is_best else best_acc
 
         save_checkpoint({
             'epoch': epoch + 1,
             'state_dict': model.state_dict(),
             'best_acc1': best_acc,
             'optimizer' : optimizer.state_dict()
-            }, is_best, path=CONFIGS["MISC"]["TMP"])
+            }, is_best, path=CONFIGS["MISC"]['WORK_DIR'])
 
         t = time.time() - start_time       
         elapsed = DayHourMinute(t)
@@ -368,12 +320,42 @@ def main():
         logger.info("Epoch {0}/{1} finishied, auxiliaries saved to {2} .\t"
                     "Elapsed {elapsed.days:d} days {elapsed.hours:d} hours {elapsed.minutes:d} minutes.\t"
                     "Remaining {remaining.days:d} days {remaining.hours:d} hours {remaining.minutes:d} minutes.".format(
-                    epoch, CONFIGS["TRAIN"]["EPOCHS"], CONFIGS["MISC"]["TMP"], elapsed=elapsed, remaining=remaining))
+                    epoch, CONFIGS["TRAIN"]["EPOCHS"], CONFIGS["MISC"]['WORK_DIR'], elapsed=elapsed, remaining=remaining))
 
-    logger.info("Optimization done, ALL results saved to %s." % CONFIGS["MISC"]["TMP"])
+    logger.info("Optimization done, ALL results saved to %s." % CONFIGS["MISC"]['WORK_DIR'])
+
     if wandb_run is not None:
         wandb_run.finish()
 
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='PyTorch Semantic-Line Training')
+    # arguments from command line
+    parser.add_argument('--config', default="./configs/default_config.yml", help="path to config file")
+    parser.add_argument('--resume', default="", help='path to config file')
+    parser.add_argument('--tmp', default="", help='tmp')
+
+    args = parser.parse_args()
+
+    assert os.path.isfile(args.config)
+    CONFIGS = yaml.safe_load(open(args.config))
+
+    # merge configs
+    if args.tmp != "" and args.tmp != CONFIGS["MISC"]["TMP"]:
+        CONFIGS["MISC"]["TMP"] = args.tmp
+
+    CONFIGS["OPTIMIZER"]["WEIGHT_DECAY"] = float(CONFIGS["OPTIMIZER"]["WEIGHT_DECAY"])
+    CONFIGS["OPTIMIZER"]["LR"] = float(CONFIGS["OPTIMIZER"]["LR"])
+
+    CONFIGS["MISC"]['RUN_NAME'] = '{}_{}_fold{}'.format(CONFIGS['MISC']['RETAILER'],
+                                                    CONFIGS['MODEL']['BACKBONE'],
+                                                    CONFIGS["DATA"]["FOLD"])
+    CONFIGS["MISC"]['WORK_DIR'] = os.path.join(CONFIGS["MISC"]["TMP"], CONFIGS["MISC"]['RUN_NAME'])
+    os.makedirs(CONFIGS["MISC"]['WORK_DIR'], exist_ok=True)
+    logger = Logger(os.path.join(CONFIGS["MISC"]['WORK_DIR'], "log.txt"))
+
+
+
+    logger.info(CONFIGS)
+    
     main()
