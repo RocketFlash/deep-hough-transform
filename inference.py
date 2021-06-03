@@ -82,8 +82,10 @@ def main():
     logger.info("Test done! Total %d imgs at %.4f secs without image io, fps: %.3f" % (len(test_loader), total_time, len(test_loader) / total_time))
 
 
-def infer(image, model, input_size=(400,400), threshold=0.01, num_angle=100, num_rho=100):
+def infer(image, model, input_size=(400,400), threshold=0.01, num_angle=100, num_rho=100, show_time=False):
     transform = get_transformations('test_aug', image_size=input_size)
+
+    t = time.time()
     
     augmented = transform(image=image)
     img_torch = augmented['image']
@@ -129,8 +131,12 @@ def infer(image, model, input_size=(400,400), threshold=0.01, num_angle=100, num
         y1_s = int(sh * y1)
         y2_s = int(sh * y2)
         lines.append([x1_s,y1_s,x2_s,y2_s])
-    
-    return np.array(lines)
+    processing_time = (time.time() - t)
+
+    if show_time:
+        return np.array(lines), processing_time
+    else:
+        return np.array(lines)
 
         
 def test(test_loader, model, args, CONFIGS, logger):
