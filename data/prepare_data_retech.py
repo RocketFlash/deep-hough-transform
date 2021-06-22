@@ -85,10 +85,10 @@ def visualize_data(label_file):
         cv2.line(image, (x1,y1), (x2,y2), (0, 255, 0), 2)
     
 
-def prepare_data(args, labels_files, save_dir='./'):
+def prepare_data(args, labels_files, save_dir='./', ext='.jpeg'):
 
     for idx, label_file in tqdm(enumerate(labels_files), total=len(labels_files)):
-        image_path = label_file.with_suffix('.jpeg')
+        image_path = label_file.with_suffix(ext)
         file_name = image_path.stem
 
         if isfile(image_path):

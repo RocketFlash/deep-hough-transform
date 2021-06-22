@@ -13,7 +13,7 @@ import pandas as pd
 from tqdm.auto import tqdm
 import yaml
 
-from src.dataloader import get_loader
+from src.dataloader_new import get_loader
 from src.model.network import Net
 from src.schedulers import get_scheduler
 from src.optimizers import get_optimizer

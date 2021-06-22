@@ -49,7 +49,9 @@ class SemanLineDataset(Dataset):
 class SemanLineDatasetTest(Dataset):
     def __init__(self, root_dir, transform=None):
         root_path_dir = Path(root_dir)
-        self.image_path = [str(l) for l in list(root_path_dir.glob('*.jpeg'))]
+        self.image_path = [str(l) for l in list(root_path_dir.glob('*.jpeg')) +\
+                                           list(root_path_dir.glob('*.jpg'))  +\
+                                           list(root_path_dir.glob('*.png'))]
         self.transform = transform
         
     def __getitem__(self, item):
