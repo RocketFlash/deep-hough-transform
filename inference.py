@@ -107,8 +107,8 @@ def infer(image, model, input_size=(400,400), threshold=0.01, num_angle=100, num
 
     #size = (400, 400) #change it when using other dataset.
     b_points = reverse_mapping(plist, numAngle=num_angle, numRho=num_rho, size=input_size)
-    scale_w = size[1] / 400
-    scale_h = size[0] / 400
+    scale_w = size[1] / input_size[1]
+    scale_h = size[0] / input_size[0]
     for i in range(len(b_points)):
         y1 = int(np.round(b_points[i][0] * scale_h))
         x1 = int(np.round(b_points[i][1] * scale_w))

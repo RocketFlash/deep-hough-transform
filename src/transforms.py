@@ -7,7 +7,8 @@ def get_transformations(aug_name='soft', image_size=(400, 400)):
         'soft' : A.Compose([
             A.Resize(image_size[0], image_size[1]),
             A.HorizontalFlip(p=0.5),
-            A.Rotate(p=0.8, limit=(-30, 30), interpolation=0, border_mode=1),
+            A.Rotate(p=0.3, limit=(-15, 15), interpolation=0, border_mode=2),
+            A.IAAPerspective (scale=(0.05, 0.1), keep_size=True, p=0.5),
             A.RandomBrightnessContrast(p=0.3, 
                                        brightness_limit=(-0.15, 0.15), 
                                        contrast_limit=(-0.15, 0.15)),
@@ -21,6 +22,7 @@ def get_transformations(aug_name='soft', image_size=(400, 400)):
                                  hue_shift_limit=(-20, 20), 
                                  sat_shift_limit=(-30, 30), 
                                  val_shift_limit=(-20, 20)),
+            A.GaussNoise(var_limit=5. / 255., p=0.05),
             A.ISONoise(p=0.2, 
                        intensity=(0.1, 0.5), 
                        color_shift=(0.01, 0.05)),
