@@ -102,7 +102,8 @@ def prepare_data(label_file, transform=None,
 
     for l in annotation.lines:
         theta, r = line2hough(l, numAngle=numangle, numRho=numrho, size=(newH, newW))
-        hough_space_label[theta, r] += 1
+        if r<numrho:
+            hough_space_label[theta, r] += 1
 
     hough_space_label = cv2.GaussianBlur(hough_space_label, (5,5), 0)
 
