@@ -11,6 +11,7 @@ class C_dht_Function(torch.autograd.Function):
         out = torch.zeros(N, C, numangle, numrho).type_as(feat).cuda()
         out = dh.forward(feat, out, numangle, numrho)
         outputs = out[0]
+        
         ctx.save_for_backward(feat)
         ctx.numangle = numangle
         ctx.numrho = numrho

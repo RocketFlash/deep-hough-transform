@@ -182,7 +182,11 @@ def validate(val_loader, model, epoch, writer):
 
 def main():
     logger.info(args)
-    assert os.path.isdir(CONFIGS["DATA"]["DIR"])
+
+    if isinstance(CONFIGS["DATA"]["DIR"], list):
+        assert all([os.path.isdir(dr) for dr in CONFIGS["DATA"]["DIR"]]) 
+    else:
+        assert os.path.isdir(CONFIGS["DATA"]["DIR"]) 
 
     wandb_run = None
     best_acc1 = 0
@@ -241,9 +245,18 @@ def main():
         else:
             logger.info("=> no checkpoint found at '{}'".format(args.resume))
 
-    df_folds = pd.read_csv(CONFIGS["DATA"]["SPLIT_FILE"])
-    df_train = df_folds[df_folds.fold != CONFIGS["DATA"]["FOLD"]]
-    df_valid = df_folds[df_folds.fold == CONFIGS["DATA"]["FOLD"]]
+
+    if isinstance(CONFIGS["DATA"]["SPLIT_FILE"], list):
+        df_train = []
+        df_valid = []
+        for sf in CONFIGS["DATA"]["SPLIT_FILE"]:
+            df_folds = pd.read_csv(sf)
+            df_train.append(df_folds[df_folds.fold != CONFIGS["DATA"]["FOLD"]])
+            df_valid.append(df_folds[df_folds.fold == CONFIGS["DATA"]["FOLD"]])
+    else:
+        df_folds = pd.read_csv(CONFIGS["DATA"]["SPLIT_FILE"])
+        df_train = df_folds[df_folds.fold != CONFIGS["DATA"]["FOLD"]]
+        df_valid = df_folds[df_folds.fold == CONFIGS["DATA"]["FOLD"]]
 
     # dataloader
     train_loader = get_loader(CONFIGS["DATA"]["DIR"], 
@@ -252,7 +265,7 @@ def main():
                               num_thread=CONFIGS["DATA"]["WORKERS"], 
                               split='train', 
                               transform_name=CONFIGS['TRAIN']['AUG_TYPE'])
-    val_loader = get_loader(CONFIGS["DATA"]["VAL_DIR"], 
+    val_loader = get_loader(CONFIGS["DATA"]["DIR"], 
                             df_valid, 
                             batch_size=1, 
                             num_thread=CONFIGS["DATA"]["WORKERS"], 

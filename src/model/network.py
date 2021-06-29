@@ -8,9 +8,10 @@ from .backbone.vgg_fpn import VGG_FPN
 from .backbone.res2net import res2net50_FPN
 
 from .dht import DHT_Layer
+from .deep_hought_torch import DHT_Layer as DHT_Layer_torch
 
 class Net(nn.Module):
-    def __init__(self, numAngle, numRho, backbone):
+    def __init__(self, numAngle, numRho, backbone, hough_cuda=True):
         super(Net, self).__init__()
         if backbone == 'resnet18':
             self.backbone = FPN18(pretrained=True, output_stride=32)
@@ -34,20 +35,21 @@ class Net(nn.Module):
             self.backbone = res2net50_FPN()
             output_stride = 32
         
+        DHT_Layer_v = DHT_Layer if hough_cuda else DHT_Layer_torch
         if backbone == 'mobilenetv2':
-            self.dht_detector1 = DHT_Layer(32, 32, numAngle=numAngle, numRho=numRho)
-            self.dht_detector2 = DHT_Layer(32, 32, numAngle=numAngle, numRho=numRho // 2)
-            self.dht_detector3 = DHT_Layer(32, 32, numAngle=numAngle, numRho=numRho // 4)
-            self.dht_detector4 = DHT_Layer(32, 32, numAngle=numAngle, numRho=numRho // (output_stride // 4))
+            self.dht_detector1 = DHT_Layer_v(32, 32, numAngle=numAngle, numRho=numRho)
+            self.dht_detector2 = DHT_Layer_v(32, 32, numAngle=numAngle, numRho=numRho // 2)
+            self.dht_detector3 = DHT_Layer_v(32, 32, numAngle=numAngle, numRho=numRho // 4)
+            self.dht_detector4 = DHT_Layer_v(32, 32, numAngle=numAngle, numRho=numRho // (output_stride // 4))
             
             self.last_conv = nn.Sequential(
                 nn.Conv2d(128, 1, 1)
             )
         else:
-            self.dht_detector1 = DHT_Layer(256, 128, numAngle=numAngle, numRho=numRho)
-            self.dht_detector2 = DHT_Layer(256, 128, numAngle=numAngle, numRho=numRho // 2)
-            self.dht_detector3 = DHT_Layer(256, 128, numAngle=numAngle, numRho=numRho // 4)
-            self.dht_detector4 = DHT_Layer(256, 128, numAngle=numAngle, numRho=numRho // (output_stride // 4))
+            self.dht_detector1 = DHT_Layer_v(256, 128, numAngle=numAngle, numRho=numRho)
+            self.dht_detector2 = DHT_Layer_v(256, 128, numAngle=numAngle, numRho=numRho // 2)
+            self.dht_detector3 = DHT_Layer_v(256, 128, numAngle=numAngle, numRho=numRho // 4)
+            self.dht_detector4 = DHT_Layer_v(256, 128, numAngle=numAngle, numRho=numRho // (output_stride // 4))
             
             self.last_conv = nn.Sequential(
                 nn.Conv2d(512, 1, 1)

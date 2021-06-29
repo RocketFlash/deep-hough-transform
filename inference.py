@@ -14,7 +14,7 @@ import cv2
 from skimage.measure import label, regionprops
 
 from src.logger import Logger
-from src.dataloader import get_loader
+from src.dataloader_new import get_loader
 from src.model.network import Net
 from src.utils import reverse_mapping, visulize_mapping_orig
 from src.basic_ops import *
@@ -22,15 +22,16 @@ from src.transforms import get_transformations
 
 
 
-def get_model(num_angle=100, num_rho=100, backbone='resnet50', device=0):
+def get_model(num_angle=100, num_rho=100, backbone='resnet50', device='cuda:0', hough_cuda=True):
     model = Net(numAngle=num_angle, 
                 numRho=num_rho, 
-                backbone=backbone)
-    model = model.cuda(device=device)
-    return model
+                backbone=backbone,
+                hough_cuda=hough_cuda)
+    
+    return model.to(device=device)
 
-def load_weights(model, weights_path):
-    checkpoint = torch.load(weights_path)
+def load_weights(model, weights_path, device='cpu'):
+    checkpoint = torch.load(weights_path, map_location=device)
     model.load_state_dict(checkpoint['state_dict'])
     return checkpoint
 
@@ -82,7 +83,7 @@ def main():
     logger.info("Test done! Total %d imgs at %.4f secs without image io, fps: %.3f" % (len(test_loader), total_time, len(test_loader) / total_time))
 
 
-def infer(image, model, input_size=(400,400), threshold=0.01, num_angle=100, num_rho=100, show_time=False):
+def infer(image, model, input_size=(400,400), threshold=0.01, num_angle=100, num_rho=100, show_time=False, on_cuda=True):
     transform = get_transformations('test_aug', image_size=input_size)
 
     t = time.time()
@@ -91,7 +92,10 @@ def infer(image, model, input_size=(400,400), threshold=0.01, num_angle=100, num
     img_torch = augmented['image']
     img_torch = img_torch.unsqueeze(0)
 
-    images = img_torch.cuda(device='cuda:0')
+    if on_cuda:
+        images = img_torch.cuda(device='cuda:0')
+    else:
+        images = img_torch
     img_size = images.shape[2:]
 
     size = (img_size[0], img_size[1])        

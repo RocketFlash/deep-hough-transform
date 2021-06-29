@@ -128,8 +128,14 @@ class SemanLineDataset(Dataset):
                                  imgs_ext='.jpeg',
                                  split='train', 
                                  transform=None):
-        lines = df_names['file_name'].tolist()
-        self.label_paths = [join(root_dir, str(i)+".txt") for i in lines]
+        if isinstance(root_dir, list) and isinstance(df_names, list):
+            lines = [df_nms['file_name'].tolist() for df_nms in df_names]
+            self.label_paths = []
+            for ln_idx, lns in enumerate(lines):
+                self.label_paths += [join(root_dir[ln_idx], str(i)+".txt") for i in lns]
+        else:
+            lines = df_names['file_name'].tolist()
+            self.label_paths = [join(root_dir, str(i)+".txt") for i in lines]
         
         self.num_directions = num_directions
         self.numangle = numangle
